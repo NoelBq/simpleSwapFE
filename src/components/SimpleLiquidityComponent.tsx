@@ -78,7 +78,6 @@ export function SimpleLiquidityComponent() {
     },
   });
 
-  // Extract pool data - SimpleSwap returns [reserveA, reserveB, totalSupply]
   const reserveA = poolInfo?.[0] || 0n;
   const reserveB = poolInfo?.[1] || 0n;
   const totalSupply = poolInfo?.[2] || 0n;
@@ -174,9 +173,7 @@ export function SimpleLiquidityComponent() {
       return formatTokenAmount(optimalAmountAWei, tokenA.decimals, 6);
     };
 
-    // Only auto-calculate if pool has liquidity (not the first liquidity provider)
     if (activeTab === "add" && reserveA > 0n && reserveB > 0n) {
-      // Only auto-calculate if one field is empty
       if (amountA && !amountB) {
         setAmountB(calculateOptimalAmountB(amountA));
       } else if (amountB && !amountA) {
@@ -193,7 +190,6 @@ export function SimpleLiquidityComponent() {
     tokenB.decimals,
   ]);
 
-  // Reset form after successful transactions
   useEffect(() => {
     if (isAddConfirmed) {
       setAmountA("");
@@ -204,14 +200,12 @@ export function SimpleLiquidityComponent() {
     }
   }, [isAddConfirmed, isRemoveConfirmed]);
 
-  // Clear detected failure reason when starting new transactions
   useEffect(() => {
     if (isAddingLiquidity || isRemovingLiquidity) {
       setDetectedFailureReason(null);
     }
   }, [isAddingLiquidity, isRemovingLiquidity]);
 
-  // Handler functions
   const handleApproveA = () => {
     if (!amountAWei) return;
     approveA(tokenA.address, CONTRACTS.SIMPLE_SWAP, amountAWei * 2n);
@@ -250,8 +244,8 @@ export function SimpleLiquidityComponent() {
       abi: SIMPLE_SWAP_ABI,
       functionName: "addLiquidity",
       args: [
-        tokenA.address, // tokenA (ignored by contract)
-        tokenB.address, // tokenB (ignored by contract)
+        tokenA.address,
+        tokenB.address,
         amountAWei,
         amountBWei,
         amountAMin,
@@ -265,8 +259,8 @@ export function SimpleLiquidityComponent() {
   const handleRemoveLiquidity = () => {
     if (!address || !liquidityWei) return;
 
-    const amountAMin = 0n; // Could calculate based on current pool ratio
-    const amountBMin = 0n; // Could calculate based on current pool ratio
+    const amountAMin = 0n;
+    const amountBMin = 0n;
     const deadline = getDeadline(20);
 
     removeLiquidity({
@@ -274,8 +268,8 @@ export function SimpleLiquidityComponent() {
       abi: SIMPLE_SWAP_ABI,
       functionName: "removeLiquidity",
       args: [
-        tokenA.address, // tokenA (ignored by contract)
-        tokenB.address, // tokenB (ignored by contract)
+        tokenA.address,
+        tokenB.address,
         liquidityWei,
         amountAMin,
         amountBMin,
@@ -319,7 +313,6 @@ export function SimpleLiquidityComponent() {
 
       {activeTab === "add" ? (
         <div className="space-y-4">
-          {/* First Provider Notice */}
           {isFirstProvider && (
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
               <div className="flex items-center gap-2 text-blue-600 font-medium mb-2">
@@ -333,7 +326,6 @@ export function SimpleLiquidityComponent() {
             </div>
           )}
 
-          {/* Token A */}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <label className="text-sm font-medium text-gray-700">
@@ -357,7 +349,6 @@ export function SimpleLiquidityComponent() {
             )}
           </div>
 
-          {/* Token B */}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <label className="text-sm font-medium text-gray-700">
@@ -437,7 +428,6 @@ export function SimpleLiquidityComponent() {
             )}
           </div>
 
-          {/* Approval Transaction Status */}
           {(needsApprovalA ||
             isApprovingA ||
             isApprovalAConfirmed ||
@@ -470,7 +460,6 @@ export function SimpleLiquidityComponent() {
             />
           )}
 
-          {/* Transaction Status for Add Liquidity */}
           {(addLiquidityHash ||
             addError ||
             isAddingLiquidity ||
@@ -510,7 +499,6 @@ export function SimpleLiquidityComponent() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Liquidity Balance */}
           {liquidityBalance !== undefined && liquidityBalance !== null && (
             <div className="p-3 bg-gray-50 rounded-md">
               <div className="text-sm text-gray-600">
@@ -520,7 +508,6 @@ export function SimpleLiquidityComponent() {
             </div>
           )}
 
-          {/* Liquidity Amount */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-gray-700">
               Liquidity to Remove
@@ -536,7 +523,6 @@ export function SimpleLiquidityComponent() {
             )}
           </div>
 
-          {/* Action Button */}
           <div className="pt-4">
             {!address ? (
               <Button disabled className="w-full">
@@ -560,7 +546,6 @@ export function SimpleLiquidityComponent() {
             )}
           </div>
 
-          {/* Transaction Status for Remove Liquidity */}
           {(removeLiquidityHash ||
             removeError ||
             isRemovingLiquidity ||
@@ -580,7 +565,6 @@ export function SimpleLiquidityComponent() {
         </div>
       )}
 
-      {/* Slippage */}
       <div className="space-y-2 mt-6 pt-4 border-t border-gray-200">
         <label className="text-sm font-medium text-gray-700">
           Slippage Tolerance: {slippage}%
@@ -596,7 +580,6 @@ export function SimpleLiquidityComponent() {
         />
       </div>
 
-      {/* Debug Info */}
       <div className="mt-6 p-4 bg-gray-50 rounded-lg border">
         <h3 className="font-semibold text-gray-800 mb-3">🔍 Debug Info</h3>
         <div className="space-y-2 text-sm">
