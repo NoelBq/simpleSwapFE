@@ -24,9 +24,6 @@ export function useTokenBalance(
   });
 }
 
-/**
- * Hook to get token allowance
- */
 export function useTokenAllowance(
   tokenAddress: Address,
   owner: Address | undefined,
@@ -43,9 +40,6 @@ export function useTokenAllowance(
   });
 }
 
-/**
- * Hook to get token decimals
- */
 export function useTokenDecimals(tokenAddress: Address) {
   return useReadContract({
     address: tokenAddress,
@@ -54,9 +48,6 @@ export function useTokenDecimals(tokenAddress: Address) {
   });
 }
 
-/**
- * Hook to get token symbol
- */
 export function useTokenSymbol(tokenAddress: Address) {
   return useReadContract({
     address: tokenAddress,
@@ -65,9 +56,6 @@ export function useTokenSymbol(tokenAddress: Address) {
   });
 }
 
-/**
- * Hook to get token name
- */
 export function useTokenName(tokenAddress: Address) {
   return useReadContract({
     address: tokenAddress,
@@ -130,9 +118,6 @@ export function useTokenApproval() {
   };
 }
 
-/**
- * Hook for token transfer
- */
 export function useTokenTransfer() {
   const {
     writeContract,
@@ -163,10 +148,8 @@ export function useTokenTransfer() {
     });
   };
 
-  // Combine write and receipt errors
   const combinedError = writeError || receiptError;
 
-  // Log errors for debugging
   if (writeError) {
     console.error("Token transfer write error:", writeError);
   }

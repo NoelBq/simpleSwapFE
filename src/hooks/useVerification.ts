@@ -64,10 +64,8 @@ export function useVerification() {
     });
   };
 
-  // Combine write and receipt errors
   const combinedError = writeError || receiptError;
 
-  // Log errors for debugging
   if (writeError) {
     console.error("Verification write error:", writeError);
   }

@@ -2,15 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, Info } from "lucide-react";
 
-import { TOKENS, CONTRACTS, type Token } from "@/types/contracts";
+import { TOKENS, CONTRACTS } from "@/types/contracts";
+import { SIMPLE_SWAP_ABI } from "@/lib/contractABI";
 import {
-  usePoolInfo,
-  useAddLiquidity,
-  useRemoveLiquidity,
-  useLiquidityBalance,
-} from "@/hooks/useSimpleSwap";
+  useReadContract,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
 import {
   useTokenBalance,
   useTokenAllowance,
@@ -25,19 +25,14 @@ import {
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { TokenSelector } from "@/components/TokenSelector";
 import { TransactionStatus } from "@/components/ui/TransactionStatus";
-// import { LiquidityDiagnostics } from "@/components/LiquidityDiagnostics";
 import { TransactionFailureDetector } from "@/components/TransactionFailureDetector";
-import { WagmiDebug } from "@/components/WagmiDebug";
 
 type TabType = "add" | "remove";
 
-export function LiquidityComponent() {
+export function SimpleLiquidityComponent() {
   const { address } = useAccount();
   const [activeTab, setActiveTab] = useState<TabType>("add");
-  const [tokenA, setTokenA] = useState<Token>(TOKENS.KAIZEN);
-  const [tokenB, setTokenB] = useState<Token>(TOKENS.YUREI);
   const [amountA, setAmountA] = useState("");
   const [amountB, setAmountB] = useState("");
   const [liquidityToRemove, setLiquidityToRemove] = useState("");
@@ -46,8 +41,19 @@ export function LiquidityComponent() {
     string | null
   >(null);
 
+  const tokenA = TOKENS.KAIZEN;
+  const tokenB = TOKENS.YUREI;
+
   // Contract reads
-  const { data: poolInfo } = usePoolInfo(tokenA.address, tokenB.address);
+  const { data: poolInfo } = useReadContract({
+    address: CONTRACTS.SIMPLE_SWAP,
+    abi: SIMPLE_SWAP_ABI,
+    functionName: "getPoolInfo",
+    query: {
+      staleTime: 30000,
+    },
+  });
+
   const { data: balanceA } = useTokenBalance(tokenA.address, address);
   const { data: balanceB } = useTokenBalance(tokenB.address, address);
   const { data: allowanceA } = useTokenAllowance(
@@ -60,36 +66,22 @@ export function LiquidityComponent() {
     address,
     CONTRACTS.SIMPLE_SWAP
   );
-  const { data: liquidityBalance } = useLiquidityBalance(
-    address,
-    tokenA.address,
-    tokenB.address
-  );
 
-  // Debug logging
-  useEffect(() => {
-    console.log("🔍 Debug - Query Data:", {
-      address,
-      tokenA: tokenA.address,
-      tokenB: tokenB.address,
-      balanceA,
-      balanceB,
-      allowanceA,
-      allowanceB,
-      poolInfo,
-      liquidityBalance,
-    });
-  }, [
-    address,
-    tokenA.address,
-    tokenB.address,
-    balanceA,
-    balanceB,
-    allowanceA,
-    allowanceB,
-    poolInfo,
-    liquidityBalance,
-  ]);
+  const { data: liquidityBalance } = useReadContract({
+    address: CONTRACTS.SIMPLE_SWAP,
+    abi: SIMPLE_SWAP_ABI,
+    functionName: "getLiquidityBalance",
+    args: address ? [address] : undefined,
+    query: {
+      enabled: Boolean(address),
+      staleTime: 30000,
+    },
+  });
+
+  // Extract pool data - SimpleSwap returns [reserveA, reserveB, totalSupply]
+  const reserveA = poolInfo?.[0] || 0n;
+  const reserveB = poolInfo?.[1] || 0n;
+  const totalSupply = poolInfo?.[2] || 0n;
 
   const amountAWei = amountA ? parseTokenAmount(amountA, tokenA.decimals) : 0n;
   const amountBWei = amountB ? parseTokenAmount(amountB, tokenB.decimals) : 0n;
@@ -97,7 +89,6 @@ export function LiquidityComponent() {
     ? parseTokenAmount(liquidityToRemove, 18)
     : 0n;
 
-  // Contract writes
   const {
     approve: approveA,
     isPending: isApprovingA,
@@ -114,23 +105,37 @@ export function LiquidityComponent() {
     hash: approveBHash,
     error: approveBError,
   } = useTokenApproval();
+
   const {
-    addLiquidity,
+    writeContract: addLiquidity,
+    data: addLiquidityHash,
     isPending: isAddingLiquidity,
-    isConfirming: isAddConfirming,
-    isConfirmed: isAddConfirmed,
-    hash: addLiquidityHash,
     error: addError,
-    isReverted: isAddReverted,
-  } = useAddLiquidity();
+  } = useWriteContract();
+
   const {
-    removeLiquidity,
+    writeContract: removeLiquidity,
+    data: removeLiquidityHash,
     isPending: isRemovingLiquidity,
-    isConfirming: isRemoveConfirming,
-    isConfirmed: isRemoveConfirmed,
-    hash: removeLiquidityHash,
     error: removeError,
-  } = useRemoveLiquidity();
+  } = useWriteContract();
+
+  // Transaction status tracking
+  const {
+    isLoading: isAddConfirming,
+    isSuccess: isAddConfirmed,
+    error: addConfirmError,
+  } = useWaitForTransactionReceipt({
+    hash: addLiquidityHash,
+  });
+
+  const {
+    isLoading: isRemoveConfirming,
+    isSuccess: isRemoveConfirmed,
+    error: removeConfirmError,
+  } = useWaitForTransactionReceipt({
+    hash: removeLiquidityHash,
+  });
 
   const needsApprovalA =
     allowanceA !== undefined &&
@@ -156,26 +161,21 @@ export function LiquidityComponent() {
   // Auto-calculate optimal amounts when one input changes
   useEffect(() => {
     const calculateOptimalAmountB = (inputAmountA: string) => {
-      if (!inputAmountA || !poolInfo || poolInfo[2] === 0n) return "";
+      if (!inputAmountA || reserveA === 0n) return "";
       const amountAWei = parseTokenAmount(inputAmountA, tokenA.decimals);
-      const optimalAmountBWei = (amountAWei * poolInfo[3]) / poolInfo[2];
+      const optimalAmountBWei = (amountAWei * reserveB) / reserveA;
       return formatTokenAmount(optimalAmountBWei, tokenB.decimals, 6);
     };
 
     const calculateOptimalAmountA = (inputAmountB: string) => {
-      if (!inputAmountB || !poolInfo || poolInfo[3] === 0n) return "";
+      if (!inputAmountB || reserveB === 0n) return "";
       const amountBWei = parseTokenAmount(inputAmountB, tokenB.decimals);
-      const optimalAmountAWei = (amountBWei * poolInfo[2]) / poolInfo[3];
+      const optimalAmountAWei = (amountBWei * reserveA) / reserveB;
       return formatTokenAmount(optimalAmountAWei, tokenA.decimals, 6);
     };
 
     // Only auto-calculate if pool has liquidity (not the first liquidity provider)
-    if (
-      activeTab === "add" &&
-      poolInfo &&
-      poolInfo[2] > 0n &&
-      poolInfo[3] > 0n
-    ) {
+    if (activeTab === "add" && reserveA > 0n && reserveB > 0n) {
       // Only auto-calculate if one field is empty
       if (amountA && !amountB) {
         setAmountB(calculateOptimalAmountB(amountA));
@@ -183,9 +183,16 @@ export function LiquidityComponent() {
         setAmountA(calculateOptimalAmountA(amountB));
       }
     }
-  }, [amountA, amountB, poolInfo, activeTab, tokenA.decimals, tokenB.decimals]);
+  }, [
+    amountA,
+    amountB,
+    reserveA,
+    reserveB,
+    activeTab,
+    tokenA.decimals,
+    tokenB.decimals,
+  ]);
 
-  // Reset form after successful transactions
   // Reset form after successful transactions
   useEffect(() => {
     if (isAddConfirmed) {
@@ -222,67 +229,64 @@ export function LiquidityComponent() {
     const amountBMin = calculateSlippage(amountBWei, slippage);
     const deadline = getDeadline(20);
 
-    // Debug logging to identify potential issues
     console.log("🔍 Add Liquidity Debug Info:", {
-      currentTime: new Date().toISOString(),
-      currentTimestamp: Math.floor(Date.now() / 1000),
-      deadline: deadline.toString(),
-      deadlineDate: new Date(Number(deadline) * 1000).toISOString(),
-      isDeadlineValid: Number(deadline) > Math.floor(Date.now() / 1000),
-      tokenA: tokenA.symbol,
-      tokenB: tokenB.symbol,
+      tokenA: tokenA.address,
+      tokenB: tokenB.address,
       amountADesired: amountAWei.toString(),
       amountBDesired: amountBWei.toString(),
       amountAMin: amountAMin.toString(),
       amountBMin: amountBMin.toString(),
-      slippagePercent: slippage,
-      userBalance: {
-        tokenA: balanceA?.toString(),
-        tokenB: balanceB?.toString(),
+      to: address,
+      deadline: deadline.toString(),
+      currentReserves: {
+        reserveA: reserveA.toString(),
+        reserveB: reserveB.toString(),
+        totalSupply: totalSupply.toString(),
       },
-      allowances: {
-        tokenA: allowanceA?.toString(),
-        tokenB: allowanceB?.toString(),
-      },
-      poolReserves: poolInfo
-        ? {
-            reserveA: poolInfo[2].toString(),
-            reserveB: poolInfo[3].toString(),
-            totalSupply: poolInfo[4].toString(),
-          }
-        : "No pool info",
     });
 
     addLiquidity({
-      tokenA: tokenA.address,
-      tokenB: tokenB.address,
-      amountADesired: amountAWei,
-      amountBDesired: amountBWei,
-      amountAMin,
-      amountBMin,
-      to: address,
-      deadline,
+      address: CONTRACTS.SIMPLE_SWAP,
+      abi: SIMPLE_SWAP_ABI,
+      functionName: "addLiquidity",
+      args: [
+        tokenA.address, // tokenA (ignored by contract)
+        tokenB.address, // tokenB (ignored by contract)
+        amountAWei,
+        amountBWei,
+        amountAMin,
+        amountBMin,
+        address,
+        deadline,
+      ],
     });
   };
 
   const handleRemoveLiquidity = () => {
     if (!address || !liquidityWei) return;
 
-    // Calculate minimum amounts (with slippage protection)
     const amountAMin = 0n; // Could calculate based on current pool ratio
     const amountBMin = 0n; // Could calculate based on current pool ratio
     const deadline = getDeadline(20);
 
     removeLiquidity({
-      tokenA: tokenA.address,
-      tokenB: tokenB.address,
-      liquidity: liquidityWei,
-      amountAMin,
-      amountBMin,
-      to: address,
-      deadline,
+      address: CONTRACTS.SIMPLE_SWAP,
+      abi: SIMPLE_SWAP_ABI,
+      functionName: "removeLiquidity",
+      args: [
+        tokenA.address, // tokenA (ignored by contract)
+        tokenB.address, // tokenB (ignored by contract)
+        liquidityWei,
+        amountAMin,
+        amountBMin,
+        address,
+        deadline,
+      ],
     });
   };
+
+  const poolExists = reserveA > 0n || reserveB > 0n;
+  const isFirstProvider = !poolExists;
 
   return (
     <div className="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg p-6">
@@ -315,11 +319,25 @@ export function LiquidityComponent() {
 
       {activeTab === "add" ? (
         <div className="space-y-4">
+          {/* First Provider Notice */}
+          {isFirstProvider && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+              <div className="flex items-center gap-2 text-blue-600 font-medium mb-2">
+                <Info className="h-4 w-4" />
+                First Liquidity Provider
+              </div>
+              <div className="text-sm text-blue-700">
+                You&apos;ll be the first to add liquidity! You can set any ratio
+                - this establishes the initial price.
+              </div>
+            </div>
+          )}
+
           {/* Token A */}
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <label className="text-sm font-medium text-gray-700">
-                Token A
+                {tokenA.symbol}
               </label>
               {balanceA !== undefined && balanceA !== null && (
                 <span className="text-xs text-gray-500">
@@ -328,16 +346,12 @@ export function LiquidityComponent() {
                 </span>
               )}
             </div>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                placeholder="0.0"
-                value={amountA}
-                onChange={(e) => setAmountA(e.target.value)}
-                className="flex-1"
-              />
-              <TokenSelector selectedToken={tokenA} onTokenSelect={setTokenA} />
-            </div>
+            <Input
+              type="number"
+              placeholder="0.0"
+              value={amountA}
+              onChange={(e) => setAmountA(e.target.value)}
+            />
             {hasInsufficientBalanceA && (
               <p className="text-xs text-red-500">Insufficient balance</p>
             )}
@@ -347,7 +361,7 @@ export function LiquidityComponent() {
           <div className="space-y-2">
             <div className="flex justify-between items-center">
               <label className="text-sm font-medium text-gray-700">
-                Token B
+                {tokenB.symbol}
               </label>
               {balanceB !== undefined && balanceB !== null && (
                 <span className="text-xs text-gray-500">
@@ -356,48 +370,31 @@ export function LiquidityComponent() {
                 </span>
               )}
             </div>
-            <div className="flex gap-2">
-              <Input
-                type="number"
-                placeholder="0.0"
-                value={amountB}
-                onChange={(e) => setAmountB(e.target.value)}
-                className="flex-1"
-              />
-              <TokenSelector selectedToken={tokenB} onTokenSelect={setTokenB} />
-            </div>
+            <Input
+              type="number"
+              placeholder="0.0"
+              value={amountB}
+              onChange={(e) => setAmountB(e.target.value)}
+            />
             {hasInsufficientBalanceB && (
               <p className="text-xs text-red-500">Insufficient balance</p>
             )}
           </div>
 
           {/* Pool Info */}
-          {poolInfo && (
+          {poolExists && (
             <div className="p-3 bg-gray-50 rounded-md">
-              {poolInfo[2] > 0n && poolInfo[3] > 0n ? (
-                <div className="text-sm text-gray-600">
-                  <div>
-                    Reserve {tokenA.symbol}:{" "}
-                    {formatTokenAmount(poolInfo[2], tokenA.decimals)}
-                  </div>
-                  <div>
-                    Reserve {tokenB.symbol}:{" "}
-                    {formatTokenAmount(poolInfo[3], tokenB.decimals)}
-                  </div>
+              <div className="text-sm text-gray-600">
+                <div>
+                  Reserve {tokenA.symbol}:{" "}
+                  {formatTokenAmount(reserveA, tokenA.decimals)}
                 </div>
-              ) : (
-                <div className="text-sm">
-                  <div className="flex items-center gap-2 text-blue-600 font-medium mb-2">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                    First Liquidity Provider
-                  </div>
-                  <div className="text-gray-600">
-                    You&apos;ll be the first to add liquidity to this pool. You
-                    can set any ratio you want - this will establish the initial
-                    price.
-                  </div>
+                <div>
+                  Reserve {tokenB.symbol}:{" "}
+                  {formatTokenAmount(reserveB, tokenB.decimals)}
                 </div>
-              )}
+                <div>Total Supply: {formatTokenAmount(totalSupply, 18)}</div>
+              </div>
             </div>
           )}
 
@@ -479,19 +476,14 @@ export function LiquidityComponent() {
             isAddingLiquidity ||
             isAddConfirming ||
             isAddConfirmed ||
-            isAddReverted ||
             detectedFailureReason) && (
             <>
               <TransactionStatus
                 hash={addLiquidityHash}
                 error={
                   addError ||
-                  (isAddReverted
-                    ? new Error(
-                        detectedFailureReason ||
-                          "Transaction failed: execution reverted"
-                      )
-                    : detectedFailureReason
+                  addConfirmError ||
+                  (detectedFailureReason
                     ? new Error(detectedFailureReason)
                     : null)
                 }
@@ -504,13 +496,15 @@ export function LiquidityComponent() {
               />
 
               {/* Failure Detector */}
-              <TransactionFailureDetector
-                hash={addLiquidityHash}
-                onFailureDetected={(reason) => {
-                  console.log("🔴 Failure detected:", reason);
-                  setDetectedFailureReason(reason);
-                }}
-              />
+              {addLiquidityHash && (
+                <TransactionFailureDetector
+                  hash={addLiquidityHash}
+                  onFailureDetected={(reason) => {
+                    console.log("🔴 Failure detected:", reason);
+                    setDetectedFailureReason(reason);
+                  }}
+                />
+              )}
             </>
           )}
         </div>
@@ -567,16 +561,22 @@ export function LiquidityComponent() {
           </div>
 
           {/* Transaction Status for Remove Liquidity */}
-          <TransactionStatus
-            hash={removeLiquidityHash}
-            error={removeError}
-            isPending={isRemovingLiquidity}
-            isConfirming={isRemoveConfirming}
-            isConfirmed={isRemoveConfirmed}
-            successMessage="Liquidity removed successfully!"
-            pendingMessage="Removing liquidity..."
-            confirmingMessage="Confirming liquidity removal..."
-          />
+          {(removeLiquidityHash ||
+            removeError ||
+            isRemovingLiquidity ||
+            isRemoveConfirming ||
+            isRemoveConfirmed) && (
+            <TransactionStatus
+              hash={removeLiquidityHash}
+              error={removeError || removeConfirmError}
+              isPending={isRemovingLiquidity}
+              isConfirming={isRemoveConfirming}
+              isConfirmed={isRemoveConfirmed}
+              successMessage="Liquidity removed successfully!"
+              pendingMessage="Removing liquidity..."
+              confirmingMessage="Confirming liquidity removal..."
+            />
+          )}
         </div>
       )}
 
@@ -596,74 +596,35 @@ export function LiquidityComponent() {
         />
       </div>
 
-      {/* Simple Debug Info */}
-      <WagmiDebug />
+      {/* Debug Info */}
       <div className="mt-6 p-4 bg-gray-50 rounded-lg border">
         <h3 className="font-semibold text-gray-800 mb-3">🔍 Debug Info</h3>
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span>Wallet Connected:</span>
-            <span className={address ? "text-green-600" : "text-red-600"}>
-              {address ? "✅ Yes" : "❌ No"}
+            <span>Pool Exists:</span>
+            <span className={poolExists ? "text-green-600" : "text-red-600"}>
+              {poolExists ? "✅ Yes" : "❌ No"}
             </span>
           </div>
-          {address && (
-            <>
-              <div className="flex justify-between">
-                <span>Your Address:</span>
-                <span className="font-mono text-xs">{address}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>KAIZEN Balance Raw:</span>
-                <span className="font-mono text-xs">
-                  {balanceA === undefined
-                    ? "undefined"
-                    : balanceA === null
-                    ? "null"
-                    : balanceA.toString()}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>ETH Balance Raw:</span>
-                <span className="font-mono text-xs">
-                  {balanceB === undefined
-                    ? "undefined"
-                    : balanceB === null
-                    ? "null"
-                    : balanceB.toString()}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>KAIZEN Allowance Raw:</span>
-                <span className="font-mono text-xs">
-                  {allowanceA === undefined
-                    ? "undefined"
-                    : allowanceA === null
-                    ? "null"
-                    : allowanceA.toString()}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>ETH Allowance Raw:</span>
-                <span className="font-mono text-xs">
-                  {allowanceB === undefined
-                    ? "undefined"
-                    : allowanceB === null
-                    ? "null"
-                    : allowanceB.toString()}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span>Pool Info Raw:</span>
-                <span className="font-mono text-xs">
-                  {poolInfo === undefined
-                    ? "undefined"
-                    : poolInfo === null
-                    ? "null"
-                    : `[${poolInfo[0]?.toString()}, ${poolInfo[1]?.toString()}, ${poolInfo[2]?.toString()}, ${poolInfo[3]?.toString()}, ${poolInfo[4]?.toString()}]`}
-                </span>
-              </div>
-            </>
+          <div className="flex justify-between">
+            <span>Reserve A:</span>
+            <span className="font-mono text-xs">{reserveA.toString()}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Reserve B:</span>
+            <span className="font-mono text-xs">{reserveB.toString()}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Total Supply:</span>
+            <span className="font-mono text-xs">{totalSupply.toString()}</span>
+          </div>
+          {liquidityBalance !== undefined && (
+            <div className="flex justify-between">
+              <span>Your Liquidity:</span>
+              <span className="font-mono text-xs">
+                {liquidityBalance.toString()}
+              </span>
+            </div>
           )}
         </div>
       </div>

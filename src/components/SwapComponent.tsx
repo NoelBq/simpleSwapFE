@@ -3,14 +3,9 @@
 import { useState, useEffect } from "react";
 import { useAccount } from "wagmi";
 import { ArrowUpDown, Settings } from "lucide-react";
-import { type Address } from "viem";
 
 import { TOKENS, CONTRACTS, type Token } from "@/types/contracts";
-import {
-  usePoolInfo,
-  useAmountOut,
-  useSwapTokens,
-} from "@/hooks/useSimpleSwap";
+import { useAmountOut, useSwapTokens } from "@/hooks/useSimpleSwap";
 import {
   useTokenBalance,
   useTokenAllowance,
@@ -22,6 +17,8 @@ import {
   getDeadline,
   calculateSlippage,
 } from "@/lib/utils";
+import { SIMPLE_SWAP_ABI } from "@/lib/contractABI";
+import { useReadContract } from "wagmi";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -35,8 +32,19 @@ export function SwapComponent() {
   const [fromAmount, setFromAmount] = useState("");
   const [slippage, setSlippage] = useState(0.5); // 0.5%
 
-  // Contract reads
-  const { data: poolInfo } = usePoolInfo(fromToken.address, toToken.address);
+  // Contract reads - poolInfo only
+  const {
+    data: poolInfo,
+    isLoading: poolLoading,
+    error: poolError,
+  } = useReadContract({
+    address: CONTRACTS.SIMPLE_SWAP,
+    abi: SIMPLE_SWAP_ABI,
+    functionName: "getPoolInfo",
+    query: {
+      staleTime: 30000,
+    },
+  });
   const { data: fromBalance } = useTokenBalance(fromToken.address, address);
   const { data: allowance } = useTokenAllowance(
     fromToken.address,
@@ -44,16 +52,57 @@ export function SwapComponent() {
     CONTRACTS.SIMPLE_SWAP
   );
 
+  // Extract reserves from pool info
+  const reserveA = poolInfo?.[0] || 0n;
+  const reserveB = poolInfo?.[1] || 0n;
+
+  useEffect(() => {
+    console.log("SwapComponent Debug:", {
+      poolInfo,
+      poolLoading,
+      poolError,
+      reserveA: reserveA.toString(),
+      reserveB: reserveB.toString(),
+      hasPoolData: !!poolInfo,
+      dataSource: poolInfo ? "getPoolInfo" : "none",
+    });
+  }, [poolInfo, poolLoading, poolError, reserveA, reserveB]);
+
+  const isFromTokenA =
+    fromToken.address.toLowerCase() === TOKENS.KAIZEN.address.toLowerCase();
+  const fromReserve = isFromTokenA ? reserveA : reserveB;
+  const toReserve = isFromTokenA ? reserveB : reserveA;
+
   const amountInWei = fromAmount
     ? parseTokenAmount(fromAmount, fromToken.decimals)
     : 0n;
-  const { data: amountOutWei } = useAmountOut(
+  const { data: amountOutWei, isLoading: amountOutLoading } = useAmountOut(
     amountInWei,
-    poolInfo?.[0] || 0n, // reserveA
-    poolInfo?.[1] || 0n // reserveB
+    fromReserve,
+    toReserve
   );
 
-  // Contract writes
+  useEffect(() => {
+    if (fromAmount && amountInWei > 0n) {
+      console.log("Amount Out Debug:", {
+        fromAmount,
+        amountInWei: amountInWei.toString(),
+        fromReserve: fromReserve.toString(),
+        toReserve: toReserve.toString(),
+        amountOutWei: amountOutWei?.toString(),
+        amountOutLoading,
+        canCalculate: fromReserve > 0n && toReserve > 0n,
+      });
+    }
+  }, [
+    fromAmount,
+    amountInWei,
+    fromReserve,
+    toReserve,
+    amountOutWei,
+    amountOutLoading,
+  ]);
+
   const {
     approve,
     isPending: isApproving,
@@ -77,6 +126,10 @@ export function SwapComponent() {
     amountInWei > (allowance as bigint);
   const amountOut = amountOutWei
     ? formatTokenAmount(amountOutWei, toToken.decimals)
+    : poolLoading || amountOutLoading
+    ? "Loading..."
+    : fromAmount && fromReserve > 0n && toReserve > 0n
+    ? "0"
     : "0";
   const hasInsufficientBalance =
     fromBalance !== undefined &&
@@ -92,7 +145,7 @@ export function SwapComponent() {
     if (!address || !amountInWei || !amountOutWei) return;
 
     const amountOutMin = calculateSlippage(amountOutWei, slippage);
-    const deadline = getDeadline(20); // 20 minutes
+    const deadline = getDeadline(20);
 
     swapTokens({
       amountIn: amountInWei,
@@ -109,7 +162,6 @@ export function SwapComponent() {
     setFromAmount("");
   };
 
-  // Reset amount when tokens change
   useEffect(() => {
     setFromAmount("");
   }, [fromToken, toToken]);
@@ -122,7 +174,16 @@ export function SwapComponent() {
   }, [isSwapConfirmed]);
 
   return (
-    <div className="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg p-6">
+    <div className="w-full max-w-md mx-auto bg-white rounded-xl shadow-lg p-6 relative">
+      {poolLoading && !poolInfo && (
+        <div className="absolute inset-0 bg-white/80 flex flex-col items-center justify-center z-20 rounded-xl">
+          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-cyan-500 mb-4"></div>
+          <div className="text-cyan-700 font-semibold text-lg">
+            Loading pool data...
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold">Swap Tokens</h2>
         <Button variant="ghost" size="icon">
@@ -131,7 +192,6 @@ export function SwapComponent() {
       </div>
 
       <div className="space-y-4">
-        {/* From Token */}
         <div className="space-y-2">
           <div className="flex justify-between items-center">
             <label className="text-sm font-medium text-gray-700">From</label>
@@ -160,7 +220,6 @@ export function SwapComponent() {
           )}
         </div>
 
-        {/* Flip Button */}
         <div className="flex justify-center">
           <Button
             variant="ghost"
@@ -172,9 +231,15 @@ export function SwapComponent() {
           </Button>
         </div>
 
-        {/* To Token */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">To</label>
+          <div className="flex justify-between items-center">
+            <label className="text-sm font-medium text-gray-700">To</label>
+            {poolLoading && (
+              <span className="text-xs text-blue-500">
+                Loading pool data...
+              </span>
+            )}
+          </div>
           <div className="flex gap-2">
             <Input
               type="number"
@@ -187,7 +252,6 @@ export function SwapComponent() {
           </div>
         </div>
 
-        {/* Slippage */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700">
             Slippage Tolerance: {slippage}%
@@ -203,7 +267,6 @@ export function SwapComponent() {
           />
         </div>
 
-        {/* Action Button */}
         <div className="pt-4">
           {!address ? (
             <Button disabled className="w-full">
@@ -233,7 +296,6 @@ export function SwapComponent() {
           )}
         </div>
 
-        {/* Approval Transaction Status */}
         {(needsApproval ||
           isApproving ||
           isApproveConfirmed ||
@@ -250,7 +312,6 @@ export function SwapComponent() {
           />
         )}
 
-        {/* Transaction Status */}
         <TransactionStatus
           hash={swapHash}
           error={swapError}

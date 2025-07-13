@@ -3,7 +3,7 @@ import {
   useWriteContract,
   useWaitForTransactionReceipt,
 } from "wagmi";
-import { type Address } from "viem";
+import { type Address, keccak256, encodePacked } from "viem";
 import { SIMPLE_SWAP_ABI, CONTRACTS } from "@/types/contracts";
 import type {
   AddLiquidityParams,
@@ -11,24 +11,46 @@ import type {
   SwapParams,
 } from "@/types/contracts";
 
-/**
- * Hook to read pool information
- */
-export function usePoolInfo(tokenA: Address, tokenB: Address) {
+export function useSimpleSwapPoolInfo() {
   return useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
     functionName: "getPoolInfo",
-    args: [tokenA, tokenB],
     query: {
-      enabled: Boolean(tokenA && tokenB),
+      retry: true,
+      retryOnMount: true,
+      staleTime: 30000,
+      refetchOnMount: true,
+      refetchOnWindowFocus: false,
     },
   });
 }
 
-/**
- * Hook to get amount out for a swap
- */
+function createPoolKey(tokenA: Address, tokenB: Address): `0x${string}` {
+  const [token0, token1] =
+    tokenA.toLowerCase() < tokenB.toLowerCase()
+      ? [tokenA, tokenB]
+      : [tokenB, tokenA];
+
+  return keccak256(encodePacked(["address", "address"], [token0, token1]));
+}
+
+export function usePoolInfo(tokenA: Address, tokenB: Address) {
+  const poolKey = createPoolKey(tokenA, tokenB);
+
+  return useReadContract({
+    address: CONTRACTS.SIMPLE_SWAP,
+    abi: SIMPLE_SWAP_ABI,
+    functionName: "pools",
+    args: [poolKey],
+    query: {
+      enabled: Boolean(tokenA && tokenB),
+      retry: false,
+      staleTime: 30000,
+    },
+  });
+}
+
 export function useAmountOut(
   amountIn: bigint,
   reserveIn: bigint,
@@ -41,6 +63,9 @@ export function useAmountOut(
     args: [amountIn, reserveIn, reserveOut],
     query: {
       enabled: Boolean(amountIn > 0n && reserveIn > 0n && reserveOut > 0n),
+      retry: true,
+      staleTime: 10000,
+      refetchOnMount: false,
     },
   });
 }
@@ -60,9 +85,6 @@ export function useTokenPrice(tokenA: Address, tokenB: Address) {
   });
 }
 
-/**
- * Hook to get user's liquidity balance
- */
 export function useLiquidityBalance(
   user: Address | undefined,
   tokenA: Address,
@@ -79,9 +101,6 @@ export function useLiquidityBalance(
   });
 }
 
-/**
- * Hook to get swap fee
- */
 export function useSwapFee() {
   return useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
@@ -335,4 +354,19 @@ export function useSwapTokens() {
     isConfirmed,
     error: combinedError,
   };
+}
+
+/**
+ * Hook to get pool reserves using getReserves (simpler approach)
+ */
+export function usePoolReserves() {
+  return useReadContract({
+    address: CONTRACTS.SIMPLE_SWAP,
+    abi: SIMPLE_SWAP_ABI,
+    functionName: "getReserves",
+    query: {
+      retry: false,
+      staleTime: 30000,
+    },
+  });
 }

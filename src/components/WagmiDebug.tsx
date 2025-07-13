@@ -32,7 +32,6 @@ export function WagmiDebug() {
     client,
   ]);
 
-  // Test a simple query to see if TanStack Query is working
   const testQuery = useQuery({
     queryKey: ["test-query"],
     queryFn: async () => {
