@@ -15,17 +15,19 @@ export function PoolDiagnostics() {
   const [selectedTokenA, setSelectedTokenA] = useState<Token>(TOKENS.KAIZEN);
   const [selectedTokenB, setSelectedTokenB] = useState<Token>(TOKENS.YUREI);
 
-  const { data: poolInfo, refetch: refetchPool } = usePoolInfo(
+  const { data: poolInfoRaw, refetch: refetchPool } = usePoolInfo(
     selectedTokenA.address,
     selectedTokenB.address
   );
+  // Type guard: ensure poolInfo is array before indexing
+  const poolInfo = Array.isArray(poolInfoRaw) ? poolInfoRaw : undefined;
   const { data: balanceA } = useTokenBalance(selectedTokenA.address, address);
   const { data: balanceB } = useTokenBalance(selectedTokenB.address, address);
 
-  const reserveA = poolInfo?.[2] || 0n;
-  const reserveB = poolInfo?.[3] || 0n;
-  const totalSupply = poolInfo?.[4] || 0n;
-  const poolExists = poolInfo?.[0] !== undefined;
+  const reserveA = poolInfo?.[2] ?? 0n;
+  const reserveB = poolInfo?.[3] ?? 0n;
+  const totalSupply = poolInfo?.[4] ?? 0n;
+  const poolExists = poolInfo !== undefined && poolInfo[0] !== undefined;
   const hasLiquidity = reserveA > 0n && reserveB > 0n;
 
   const getPoolStatus = () => {

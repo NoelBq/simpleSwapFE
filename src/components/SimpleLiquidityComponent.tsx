@@ -45,7 +45,7 @@ export function SimpleLiquidityComponent() {
   const tokenB = TOKENS.YUREI;
 
   // Contract reads
-  const { data: poolInfo } = useReadContract({
+  const { data: poolInfoRaw } = useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
     functionName: "getPoolInfo",
@@ -53,6 +53,8 @@ export function SimpleLiquidityComponent() {
       staleTime: 30000,
     },
   });
+  // Type guard: ensure poolInfo is array before indexing
+  const poolInfo = Array.isArray(poolInfoRaw) ? poolInfoRaw : undefined;
 
   const { data: balanceA } = useTokenBalance(tokenA.address, address);
   const { data: balanceB } = useTokenBalance(tokenB.address, address);
@@ -78,9 +80,9 @@ export function SimpleLiquidityComponent() {
     },
   });
 
-  const reserveA = poolInfo?.[0] || 0n;
-  const reserveB = poolInfo?.[1] || 0n;
-  const totalSupply = poolInfo?.[2] || 0n;
+  const reserveA = poolInfo?.[0] ?? 0n;
+  const reserveB = poolInfo?.[1] ?? 0n;
+  const totalSupply = poolInfo?.[2] ?? 0n;
 
   const amountAWei = amountA ? parseTokenAmount(amountA, tokenA.decimals) : 0n;
   const amountBWei = amountB ? parseTokenAmount(amountB, tokenB.decimals) : 0n;

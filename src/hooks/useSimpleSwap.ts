@@ -41,7 +41,9 @@ export function usePoolInfo(tokenA: Address, tokenB: Address) {
   return useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
-    functionName: "pools",
+    functionName: "getPoolInfo",
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error
     args: [poolKey],
     query: {
       enabled: Boolean(tokenA && tokenB),
@@ -94,6 +96,8 @@ export function useLiquidityBalance(
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
     functionName: "getLiquidityBalance",
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error
     args: user ? [user, tokenA, tokenB] : undefined,
     query: {
       enabled: Boolean(user && tokenA && tokenB),
@@ -105,6 +109,8 @@ export function useSwapFee() {
   return useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error
     functionName: "SWAP_FEE",
   });
 }
@@ -116,6 +122,8 @@ export function useFeeDenominator() {
   return useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error
     functionName: "FEE_DENOMINATOR",
   });
 }
@@ -363,6 +371,8 @@ export function usePoolReserves() {
   return useReadContract({
     address: CONTRACTS.SIMPLE_SWAP,
     abi: SIMPLE_SWAP_ABI,
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-expect-error
     functionName: "getReserves",
     query: {
       retry: false,

@@ -47,7 +47,9 @@ export function LiquidityComponent() {
   >(null);
 
   // Contract reads
-  const { data: poolInfo } = usePoolInfo(tokenA.address, tokenB.address);
+  const { data: poolInfoRaw } = usePoolInfo(tokenA.address, tokenB.address);
+  // Type guard: ensure poolInfo is array before indexing
+  const poolInfo = Array.isArray(poolInfoRaw) ? poolInfoRaw : undefined;
   const { data: balanceA } = useTokenBalance(tokenA.address, address);
   const { data: balanceB } = useTokenBalance(tokenB.address, address);
   const { data: allowanceA } = useTokenAllowance(

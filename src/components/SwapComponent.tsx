@@ -34,7 +34,7 @@ export function SwapComponent() {
 
   // Contract reads - poolInfo only
   const {
-    data: poolInfo,
+    data: poolInfoRaw,
     isLoading: poolLoading,
     error: poolError,
   } = useReadContract({
@@ -45,6 +45,8 @@ export function SwapComponent() {
       staleTime: 30000,
     },
   });
+  // Type guard: ensure poolInfo is array before indexing
+  const poolInfo = Array.isArray(poolInfoRaw) ? poolInfoRaw : undefined;
   const { data: fromBalance } = useTokenBalance(fromToken.address, address);
   const { data: allowance } = useTokenAllowance(
     fromToken.address,
@@ -53,8 +55,8 @@ export function SwapComponent() {
   );
 
   // Extract reserves from pool info
-  const reserveA = poolInfo?.[0] || 0n;
-  const reserveB = poolInfo?.[1] || 0n;
+  const reserveA = poolInfo?.[0] ?? 0n;
+  const reserveB = poolInfo?.[1] ?? 0n;
 
   useEffect(() => {
     console.log("SwapComponent Debug:", {
